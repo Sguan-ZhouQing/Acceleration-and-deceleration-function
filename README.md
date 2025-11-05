@@ -30,3 +30,17 @@ void SVPWM(float phi, float d, float q, float *d_u, float *d_v, float *d_w) {
     *d_v = t_m * v[sector - 1][1] + t_n * v[sector % 6][1] + t_0 / 2;
     *d_w = t_m * v[sector - 1][2] + t_n * v[sector % 6][2] + t_0 / 2;
 }
+
+<img width="788" height="386" alt="image" src="https://github.com/user-attachments/assets/043837af-c3c9-4384-96d3-611595cd6e64" />
+
+float kalman_filter_std(float input, float r, float q)
+{
+    static float z;
+    static float p = 1;
+    float g = 0;
+    p = p + q;
+    g = p / (p + r);
+    z = z + g * (input - z);
+    p = (1 - g) * p;
+    return z;
+}
