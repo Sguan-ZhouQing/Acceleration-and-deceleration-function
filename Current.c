@@ -2,7 +2,7 @@
  * @Author: 星必尘Sguan
  * @Date: 2025-11-04 19:24:49
  * @LastEditors: 星必尘Sguan|3464647102@qq.com
- * @LastEditTime: 2025-11-06 00:59:15
+ * @LastEditTime: 2025-11-07 21:21:40
  * @FilePath: \demo_SguanFOCv2.0\Hardware\Current.c
  * @Description: 电流采样实现
  * 
@@ -86,7 +86,7 @@ void ADC_Process_All_Data(void) {
     ADC_Data.Bus_Voltage = adc_voltage * BUS_VOLTAGE_DIVIDER_RATIO;
     
     adc_voltage = (ADC_InjectedValues[1] / ADC_RESOLUTION) * VOLTAGE_REF;
-    ADC_Data.U_Current = (adc_voltage / OPAMP_GAIN) / SHUNT_RESISTANCE;
+    ADC_Data.U_Current = ((adc_voltage - 1.6f) / OPAMP_GAIN) / SHUNT_RESISTANCE;
     
     adc_voltage = (ADC_InjectedValues[2] / ADC_RESOLUTION) * VOLTAGE_REF;
     ADC_Data.W_Current = (adc_voltage / OPAMP_GAIN) / SHUNT_RESISTANCE;
@@ -140,3 +140,13 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
     }
 }
 
+
+// void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
+// {
+//     if (htim->Instance == TIM1 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_4)
+//     {
+//         // 现在这个中断已经是每3个PWM周期触发一次了
+//         ADC_Start_Conversion_Sequence();
+//         LED_Tick();
+//     }
+// }

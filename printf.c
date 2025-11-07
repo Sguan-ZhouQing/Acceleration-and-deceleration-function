@@ -2,7 +2,7 @@
  * @Author: 星必尘Sguan
  * @Date: 2025-05-26 15:32:26
  * @LastEditors: 星必尘Sguan|3464647102@qq.com
- * @LastEditTime: 2025-11-04 18:42:58
+ * @LastEditTime: 2025-11-07 12:11:09
  * @FilePath: \demo_SguanFOCv2.0\Hardware\printf.c
  * @Description: 使用USART串口收发和数据处理
  * @Key_GPIO: Many;
@@ -13,7 +13,11 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
-#include "Foc.h"
+// 引入外部函数
+#include "foc.h"
+#include "motor_pid.h"
+extern PID_STRUCT SguanVal;
+
 
 // 定义串口缓存区
 extern UART_HandleTypeDef huart1;
@@ -23,7 +27,7 @@ uint8_t RxBuffer[1];        // 串口接收缓冲
 uint16_t RxLine = 0;        // 指令长度
 uint8_t DataBuff[200];      // 指令内容
 // 全局可调变量
-float Adjustable_Data = 30.0f;
+float Adjustable_Data = 0.0f;
 
 
 // 支持printf函数，而不需要选择MicroLIB
@@ -129,16 +133,19 @@ static void PID_Adjust(uint8_t Motor_n) {
         {
             // PID_Pos.P = data_Get;
 //            SguanFOC.Velocity_PID.Kp = data_Get;
+            SguanVal.Kp = data_Get;
         }
         if(DataBuff[0]=='I' && DataBuff[1]=='2')
         {
             // PID_Pos.P = data_Get;
 //            SguanFOC.Velocity_PID.Ki = data_Get;
+            SguanVal.Ki = data_Get;
         }
         if(DataBuff[0]=='D' && DataBuff[1]=='2')
         {
             // PID_Pos.P = data_Get;
 //            SguanFOC.Velocity_PID.Kd = data_Get;
+            SguanVal.Kd = data_Get;
         }
         // 其他PID参数调整逻辑...
     }
@@ -152,7 +159,7 @@ static void PID_Adjust(uint8_t Motor_n) {
  * @return {*}
  */
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) {
-    if (huart->Instance == USART2) {
+    if (huart->Instance == USART1) {
         // 处理接收到的数据
         for(uint16_t i = 0; i < Size; i++) {
             RxLine++;
