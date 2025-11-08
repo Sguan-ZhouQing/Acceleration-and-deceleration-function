@@ -2,7 +2,7 @@
  * @Author: 星必尘Sguan
  * @Date: 2025-05-08 19:26:48
  * @LastEditors: 星必尘Sguan|3464647102@qq.com
- * @LastEditTime: 2025-11-07 21:26:00
+ * @LastEditTime: 2025-11-08 16:59:04
  * @FilePath: \demo_SguanFOCv2.0\Hardware\Timer.c
  * @Description: TIM定时中断统一管理函数;
  * 
@@ -12,7 +12,10 @@
 // 外部函数包含
 #include "GlobalSet.h"
 #include "Current.h"
-#include "led.h"
+#include "Encoder.h"
+#include "foc.h"
+#include "filter.h"
+extern ADC_SampleData_t ADC_Data;
 
 /**
  * @description: 初始化1ms中断函数的时钟
@@ -35,8 +38,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
     if (htim == &htim2) {  // 1kHz中断
         GlobalSet_Tick();
         ADC_Start_Conversion_Sequence();
-        LED_Tick();
-
+    }
+    if (htim == &htim4) {  // 1kHz中断
+        static float filtered_value = 0.0f;
+        filtered_value = low_pass_filter(ADC_Data.Potentiometer*75.0f, filtered_value, 0.003f);
+        SguanFOC_Velocity_CloseLoop(Encoder_GetRad(),filtered_value);
     }
 }
 
