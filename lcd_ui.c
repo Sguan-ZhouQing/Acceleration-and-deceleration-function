@@ -1,411 +1,257 @@
 #include "lcd_ui.h"
-#include "string.h"
 
-static LCD_UI_t lcd_ui;
-static char temp_str[32];
+static ChartManager_t chart_manager;
 
-// 参数显示缓冲区 (简化，只存储数值和颜色)
-static struct {
-    float value;
-    uint16_t color;
-    uint8_t updated;
-} param_display[3] = {0};
-
-// 静态分配数据缓冲区，避免动态内存分配
-static float curve_data_buffer[3][MAX_DATA_POINTS];
-
-// 重写标准库函数，避免半主机依赖
-__attribute__((used)) int _write(int file, char *ptr, int len)
-{
-    return len;
-}
-
-// 简单的浮点数转字符串函数，替代snprintf
-static void float_to_str(float value, char* buffer, int precision)
-{
-    int integer_part = (int)value;
-    float fractional_part = value - integer_part;
-    
-    // 处理负数
-    if (value < 0) {
-        *buffer++ = '-';
-        integer_part = -integer_part;
-        fractional_part = -fractional_part;
-    }
-    
-    // 转换整数部分
-    char int_str[16];
-    char *p = int_str;
-    int len = 0;
-    
-    do {
-        *p++ = '0' + (integer_part % 10);
-        integer_part /= 10;
-        len++;
-    } while (integer_part > 0);
-    
-    // 反转整数部分
-    for (int i = 0; i < len; i++) {
-        buffer[i] = int_str[len - 1 - i];
-    }
-    buffer += len;
-    
-    if (precision > 0) {
-        *buffer++ = '.';
-        
-        // 转换小数部分
-        for (int i = 0; i < precision; i++) {
-            fractional_part *= 10;
-            int digit = (int)fractional_part;
-            *buffer++ = '0' + digit;
-            fractional_part -= digit;
-        }
-    }
-    
-    *buffer = '\0';
-}
-
-// 简单的整数转字符串函数
-static void int_to_str(int value, char* buffer)
-{
-    if (value == 0) {
-        buffer[0] = '0';
-        buffer[1] = '\0';
-        return;
-    }
-    
-    char temp[16];
-    char *p = temp;
-    int len = 0;
-    int is_negative = 0;
-    
-    if (value < 0) {
-        is_negative = 1;
-        value = -value;
-    }
-    
-    while (value > 0) {
-        *p++ = '0' + (value % 10);
-        value /= 10;
-        len++;
-    }
-    
-    char *dst = buffer;
-    if (is_negative) {
-        *dst++ = '-';
-    }
-    
-    for (int i = 0; i < len; i++) {
-        dst[i] = temp[len - 1 - i];
-    }
-    dst[len] = '\0';
-}
-
-/**
-  * @brief  UI初始化
-  */
+// 初始化图表UI
 void LCD_UI_Init(void)
 {
-    HAL_Delay(500);
-    LCD_Init();
-    // 初始化UI管理结构体
-    memset(&lcd_ui, 0, sizeof(LCD_UI_t));
-    lcd_ui.bg_color = BLACK;
-    lcd_ui.axis_color = WHITE;
-    lcd_ui.grid_color = GRAY;
-    lcd_ui.last_update_time = HAL_GetTick();
+    // 初始化图表管理器
+    chart_manager.curve_count = 0;
+    chart_manager.current_x = 0;
+    chart_manager.time_elapsed = 0.0f;
     
-    // 初始化参数显示区
-    memset(param_display, 0, sizeof(param_display));
-    
-    // 初始化曲线数据缓冲区
-    for (int i = 0; i < 3; i++) {
-        memset(curve_data_buffer[i], 0, sizeof(curve_data_buffer[i]));
+    // 清空所有曲线数据
+    for(int i = 0; i < MAX_CURVES; i++) {
+        chart_manager.curves[i].active = 0;
+        for(int j = 0; j < CHART_WIDTH; j++) {
+            chart_manager.curves[i].data[j] = Y_AXIS_MIN; // 初始化为最小值
+        }
     }
     
-    // 清屏
-    LCD_Fill_Fast(0, 0, LCD_W, LCD_H, lcd_ui.bg_color);
-    
-    // 绘制初始坐标系 (默认速度范围: -30 到 250)
-    LCD_UI_DrawCoordinateSystem(-30.0f, 250.0f);
-    
-    // 绘制参数显示区域边框
-    LCD_DrawLine(UI_PARAM_X_START, 0, UI_PARAM_X_START, LCD_H, lcd_ui.axis_color);
+    // 绘制坐标系
+    LCD_UI_DrawCoordinateSystem();
 }
 
-/**
-  * @brief  绘制坐标系
-  * @param  y_min: Y轴最小值
-  * @param  y_max: Y轴最大值
-  */
-void LCD_UI_DrawCoordinateSystem(float y_min, float y_max)
+// 绘制坐标系
+void LCD_UI_DrawCoordinateSystem(void)
 {
-    uint16_t x, y;
-    char temp[16];
-    
     // 清空图表区域
-    LCD_Fill_Fast(UI_GRAPH_X_START, UI_GRAPH_Y_START, 
-                 UI_GRAPH_X_START + UI_GRAPH_WIDTH, 
-                 UI_GRAPH_Y_START + UI_GRAPH_HEIGHT, 
-                 lcd_ui.bg_color);
+    LCD_Fill_Fast(CHART_X_START, CHART_Y_START, 
+                 CHART_X_START + CHART_WIDTH, 
+                 CHART_Y_START + CHART_HEIGHT, 
+                 BLACK);
     
-    // 绘制坐标轴
-    // X轴 (底部)
-    LCD_DrawLine(GRAPH_X_START, GRAPH_Y_START + GRAPH_HEIGHT,
-                 GRAPH_X_START + GRAPH_WIDTH, GRAPH_Y_START + GRAPH_HEIGHT,
-                 lcd_ui.axis_color);
+    // 绘制坐标轴（白色）
+    // Y轴
+    LCD_DrawLine(CHART_X_START + 20, CHART_Y_START + 10, 
+                CHART_X_START + 20, CHART_Y_START + CHART_HEIGHT - 10, 
+                WHITE);
+    // X轴
+    LCD_DrawLine(CHART_X_START + 20, CHART_Y_START + CHART_HEIGHT - 10, 
+                CHART_X_START + CHART_WIDTH - 10, CHART_Y_START + CHART_HEIGHT - 10, 
+                WHITE);
     
-    // Y轴 (左侧)
-    LCD_DrawLine(GRAPH_X_START, GRAPH_Y_START,
-                 GRAPH_X_START, GRAPH_Y_START + GRAPH_HEIGHT,
-                 lcd_ui.axis_color);
+    // Y轴刻度标记
+    int y_ticks[] = {-30, 0, 50, 100, 150, 200, 250};
+    int y_pixel_range = CHART_HEIGHT - 20; // 减去上下边距
     
-    // 绘制网格线
-    // 水平网格线 (Y轴)
-    for (int i = 1; i < 5; i++) {
-        y = GRAPH_Y_START + (i * GRAPH_HEIGHT / 5);
-        LCD_DrawLine(GRAPH_X_START, y, GRAPH_X_START + GRAPH_WIDTH, y, lcd_ui.grid_color);
-    }
-    
-    // 垂直网格线 (X轴 - 时间轴)
-    for (int i = 1; i < 5; i++) {
-        x = GRAPH_X_START + (i * GRAPH_WIDTH / 5);
-        LCD_DrawLine(x, GRAPH_Y_START, x, GRAPH_Y_START + GRAPH_HEIGHT, lcd_ui.grid_color);
-    }
-    
-    // 绘制Y轴刻度标签 - 使用小字号
-    for (int i = 0; i <= 5; i++) {
-        y = GRAPH_Y_START + GRAPH_HEIGHT - (i * GRAPH_HEIGHT / 5);
-        float value = y_min + (y_max - y_min) * i / 5;
-        
-        // 使用自定义转换函数替代snprintf
-        float_to_str(value, temp, 0);
-        LCD_ShowString(GRAPH_X_START - 22, y - 4, (uint8_t*)temp, lcd_ui.axis_color, lcd_ui.bg_color, FONT_SIZE_SMALL, 0);
+    for(int i = 0; i < sizeof(y_ticks)/sizeof(y_ticks[0]); i++) {
+        int y_pixel = CHART_Y_START + CHART_HEIGHT - 10 - 
+                     ((y_ticks[i] - Y_AXIS_MIN) * y_pixel_range / (Y_AXIS_MAX - Y_AXIS_MIN));
         
         // 绘制刻度线
-        LCD_DrawLine(GRAPH_X_START - 2, y, GRAPH_X_START, y, lcd_ui.axis_color);
+        LCD_DrawLine(CHART_X_START + 18, y_pixel, 
+                    CHART_X_START + 22, y_pixel, 
+                    WHITE);
+        
+        // 显示刻度值
+        char num_str[8];
+        if(y_ticks[i] >= 0) {
+            sprintf(num_str, "%d", y_ticks[i]);
+        } else {
+            sprintf(num_str, "-%d", -y_ticks[i]);
+        }
+        
+        LCD_ShowString(CHART_X_START + 2, y_pixel - 6, (uint8_t*)num_str, WHITE, BLACK, 12, 0);
     }
     
-    // 绘制X轴刻度标签 (时间) - 使用小字号
-    for (int i = 0; i <= 5; i++) {
-        x = GRAPH_X_START + (i * GRAPH_WIDTH / 5);
-        int time_sec = i;
-        
-        // 使用自定义转换函数
-        int_to_str(time_sec, temp);
-        strcat(temp, "");
-        LCD_ShowString(x - 6, GRAPH_Y_START + GRAPH_HEIGHT + 1, (uint8_t*)temp, lcd_ui.axis_color, lcd_ui.bg_color, FONT_SIZE_SMALL, 0);
+    // X轴刻度标记
+    for(int i = 0; i <= 5; i++) {
+        int x_pixel = CHART_X_START + 20 + (i * (CHART_WIDTH - 30) / 5);
         
         // 绘制刻度线
-        LCD_DrawLine(x, GRAPH_Y_START + GRAPH_HEIGHT, x, GRAPH_Y_START + GRAPH_HEIGHT + 2, lcd_ui.axis_color);
-    }
-    
-    // 绘制坐标轴标签 - 使用小字号
-    LCD_ShowString(GRAPH_X_START + GRAPH_WIDTH/2 - 10, GRAPH_Y_START + GRAPH_HEIGHT + 1, 
-                   (uint8_t*)"", lcd_ui.axis_color, lcd_ui.bg_color, FONT_SIZE_SMALL, 0);
-    
-    // Y轴标签 (垂直显示) - 使用小字号
-    LCD_ShowString(3, GRAPH_Y_START + GRAPH_HEIGHT/2 - 20, 
-                   (uint8_t*)"", lcd_ui.axis_color, lcd_ui.bg_color, FONT_SIZE_SMALL, 0);
-}
-
-/**
-  * @brief  添加曲线
-  * @param  curve_id: 曲线ID (0-2)
-  * @param  name: 曲线名称
-  * @param  color: 曲线颜色
-  * @param  min_val: 最小值
-  * @param  max_val: 最大值
-  */
-void LCD_UI_AddCurve(uint8_t curve_id, const char* name, uint16_t color, float min_val, float max_val)
-{
-    if (curve_id >= 3) return;
-    
-    // 使用静态分配的数据缓冲区
-    lcd_ui.curves[curve_id].data_buffer = curve_data_buffer[curve_id];
-    lcd_ui.curves[curve_id].data_index = 0;
-    lcd_ui.curves[curve_id].color = color;
-    lcd_ui.curves[curve_id].min_value = min_val;
-    lcd_ui.curves[curve_id].max_value = max_val;
-    strncpy(lcd_ui.curves[curve_id].name, name, sizeof(lcd_ui.curves[curve_id].name) - 1);
-    
-    if (lcd_ui.curve_count <= curve_id) {
-        lcd_ui.curve_count = curve_id + 1;
+        LCD_DrawLine(x_pixel, CHART_Y_START + CHART_HEIGHT - 12, 
+                    x_pixel, CHART_Y_START + CHART_HEIGHT - 8, 
+                    WHITE);
+        
+        // 显示刻度值
+        char num_str[4];
+        sprintf(num_str, "%d", i);
+        LCD_ShowString(x_pixel - 3, CHART_Y_START + CHART_HEIGHT - 20, (uint8_t*)num_str, WHITE, BLACK, 12, 0);
     }
 }
 
-/**
-  * @brief  更新曲线数据
-  * @param  curve_id: 曲线ID
-  * @param  value: 新数据值
-  */
-void LCD_UI_UpdateCurveData(uint8_t curve_id, float value)
+// 添加新曲线
+void LCD_UI_AddCurve(uint16_t color)
 {
-    if (curve_id >= lcd_ui.curve_count) return;
-    if (lcd_ui.curves[curve_id].data_buffer == NULL) return;
-    
-    // 更新数据缓冲区
-    lcd_ui.curves[curve_id].data_buffer[lcd_ui.curves[curve_id].data_index] = value;
-    lcd_ui.curves[curve_id].data_index = (lcd_ui.curves[curve_id].data_index + 1) % MAX_DATA_POINTS;
+    if(chart_manager.curve_count < MAX_CURVES) {
+        int index = chart_manager.curve_count;
+        chart_manager.curves[index].color = color;
+        chart_manager.curves[index].active = 1;
+        
+        // 初始化曲线数据
+        for(int i = 0; i < CHART_WIDTH; i++) {
+            chart_manager.curves[index].data[i] = Y_AXIS_MIN;
+        }
+        
+        chart_manager.curve_count++;
+    }
 }
 
-/**
-  * @brief  刷新图表显示
-  */
-void LCD_UI_RefreshGraph(void)
+// 更新曲线数据
+void LCD_UI_UpdateCurveData(uint8_t curve_index, float y_value)
 {
-    // 清空曲线显示区域 (保留坐标轴)
-    LCD_Fill_Fast(GRAPH_X_START + 1, GRAPH_Y_START + 1,
-                 GRAPH_X_START + GRAPH_WIDTH - 1,
-                 GRAPH_Y_START + GRAPH_HEIGHT - 1,
-                 lcd_ui.bg_color);
+    if(curve_index < chart_manager.curve_count && chart_manager.curves[curve_index].active) {
+        // 限制Y值在显示范围内
+        if(y_value < Y_AXIS_MIN) y_value = Y_AXIS_MIN;
+        if(y_value > Y_AXIS_MAX) y_value = Y_AXIS_MAX;
+        
+        chart_manager.curves[curve_index].data[chart_manager.current_x] = y_value;
+    }
+}
+
+// 推进时间（移动曲线）
+void LCD_UI_AdvanceTime(float time_step)
+{
+    chart_manager.time_elapsed += time_step;
     
-    // 绘制每条曲线
-    for (uint8_t i = 0; i < lcd_ui.curve_count; i++) {
-        if (lcd_ui.curves[i].data_buffer == NULL) continue;
-        
-        uint16_t prev_x = 0, prev_y = 0;
-        uint8_t first_point = 1;
-        uint8_t prev_point_valid = 0;  // 标记前一个点是否有效
-        
-        // 绘制曲线上的每个点
-        for (uint16_t j = 0; j < MAX_DATA_POINTS; j++) {
-            uint16_t buffer_index = (lcd_ui.curves[i].data_index + j) % MAX_DATA_POINTS;
-            float value = lcd_ui.curves[i].data_buffer[buffer_index];
-            
-            // 计算屏幕坐标
-            uint16_t x = GRAPH_X_START + j;
-            
-            // 改进的坐标计算：确保值在有效范围内
-            float normalized_value = value;
-            if (normalized_value < lcd_ui.curves[i].min_value) {
-                normalized_value = lcd_ui.curves[i].min_value;
-            }
-            if (normalized_value > lcd_ui.curves[i].max_value) {
-                normalized_value = lcd_ui.curves[i].max_value;
-            }
-            
-            uint16_t y = GRAPH_Y_START + GRAPH_HEIGHT - 
-                        (uint16_t)((normalized_value - lcd_ui.curves[i].min_value) * GRAPH_HEIGHT / 
-                                  (lcd_ui.curves[i].max_value - lcd_ui.curves[i].min_value));
-            
-            // 确保Y坐标在有效范围内
-            if (y < GRAPH_Y_START) {
-                y = GRAPH_Y_START;
-            }
-            if (y > GRAPH_Y_START + GRAPH_HEIGHT) {
-                y = GRAPH_Y_START + GRAPH_HEIGHT;
-            }
-            
-            // 检查当前点是否在有效区域内
-            uint8_t current_point_valid = 1;
-            
-            // 改进：只有当值在有效范围内时才认为是有效点
-            if (value < lcd_ui.curves[i].min_value || value > lcd_ui.curves[i].max_value) {
-                current_point_valid = 0;
-            }
-            
-            if (!first_point && j > 0) {
-                // 只有当前后两个点都有效时才绘制线段
-                if (prev_point_valid && current_point_valid) {
-                    // 改进：检查两点是否都在图表区域内
-                    if (!(prev_y == GRAPH_Y_START && y == GRAPH_Y_START) &&  // 不在顶部边界
-                        !(prev_y == GRAPH_Y_START + GRAPH_HEIGHT && y == GRAPH_Y_START + GRAPH_HEIGHT)) {  // 不在底部边界
-                        LCD_DrawLine(prev_x, prev_y, x, y, lcd_ui.curves[i].color);
-                    } else {
-                        // 如果两点都在边界上，只绘制点
-                        LCD_DrawPoint(x, y, lcd_ui.curves[i].color);
-                    }
-                } else {
-                    // 如果当前点或前一个点无效，只绘制单独的点（如果当前点有效）
-                    if (current_point_valid) {
-                        LCD_DrawPoint(x, y, lcd_ui.curves[i].color);
-                    }
+    // 如果超过5秒，整体左移数据
+    if(chart_manager.time_elapsed > X_AXIS_MAX) {
+        // 所有曲线数据左移一位
+        for(int i = 0; i < chart_manager.curve_count; i++) {
+            if(chart_manager.curves[i].active) {
+                for(int j = 0; j < CHART_WIDTH - 1; j++) {
+                    chart_manager.curves[i].data[j] = chart_manager.curves[i].data[j + 1];
                 }
-            } else {
-                // 绘制第一个点（如果有效）
-                if (current_point_valid) {
-                    LCD_DrawPoint(x, y, lcd_ui.curves[i].color);
-                }
+                // 新数据位置设为最小值
+                chart_manager.curves[i].data[CHART_WIDTH - 1] = Y_AXIS_MIN;
             }
-            
-            prev_x = x;
-            prev_y = y;
-            prev_point_valid = current_point_valid;
-            first_point = 0;
+        }
+        chart_manager.time_elapsed -= 1.0f; // 减去1秒
+    } else {
+        // 正常推进当前绘制位置
+        chart_manager.current_x = (uint16_t)((chart_manager.time_elapsed / X_AXIS_MAX) * (CHART_WIDTH - 30));
+        if(chart_manager.current_x >= CHART_WIDTH) {
+            chart_manager.current_x = CHART_WIDTH - 1;
         }
     }
 }
 
-/**
-  * @brief  显示参数 (简化版本，只显示数值)
-  * @param  row: 行号 (0-2)
-  * @param  value: 参数值
-  * @param  color: 显示颜色
-  */
-void LCD_UI_DisplayParameter(uint8_t row, float value, uint16_t color)
+// 刷新图表显示
+void LCD_UI_RefreshChart(void)
 {
-    if (row >= 3) return;
+    // 只重绘曲线区域，不重绘坐标轴
+    int chart_area_x_start = CHART_X_START + 21;
+    int chart_area_y_start = CHART_Y_START + 11;
+    int chart_area_width = CHART_WIDTH - 31;
+    int chart_area_height = CHART_HEIGHT - 21;
     
-    // 更新参数缓冲区
-    param_display[row].value = value;
-    param_display[row].color = color;
-    param_display[row].updated = 1;
-}
-
-/**
-  * @brief  清除参数显示区域
-  */
-void LCD_UI_ClearParameterArea(void)
-{
-    LCD_Fill_Fast(UI_PARAM_X_START + 1, UI_PARAM_Y_START + 1,
-                 UI_PARAM_X_START + UI_PARAM_WIDTH - 1,
-                 UI_PARAM_Y_START + UI_PARAM_HEIGHT - 1,
-                 lcd_ui.bg_color);
-}
-
-/**
-  * @brief  更新整个显示
-  */
-void LCD_UI_UpdateDisplay(void)
-{
-    // 刷新图表
-    LCD_UI_RefreshGraph();
+    // 清空曲线区域
+    LCD_Fill_Fast(chart_area_x_start, chart_area_y_start, 
+                 chart_area_x_start + chart_area_width, 
+                 chart_area_y_start + chart_area_height, 
+                 BLACK);
     
-    // 更新参数显示
-    for (uint8_t i = 0; i < 3; i++) {
-        if (param_display[i].updated) {
-            uint16_t y_pos = UI_PARAM_Y_START + 10 + i * PARAM_ITEM_HEIGHT;
+    // 绘制所有激活的曲线
+    for(int curve_idx = 0; curve_idx < chart_manager.curve_count; curve_idx++) {
+        if(!chart_manager.curves[curve_idx].active) continue;
+        
+        uint16_t curve_color = chart_manager.curves[curve_idx].color;
+        
+        // 绘制曲线（连接相邻数据点）
+        for(int x = 1; x < CHART_WIDTH; x++) {
+            float y1 = chart_manager.curves[curve_idx].data[x - 1];
+            float y2 = chart_manager.curves[curve_idx].data[x];
             
-            // 清除该行区域
-            LCD_Fill(UI_PARAM_X_START + 2, y_pos - 6,
-                     UI_PARAM_X_START + UI_PARAM_WIDTH - 2,
-                     y_pos + 10,
-                     lcd_ui.bg_color);
+            // 跳过无效数据点
+            if(y1 <= Y_AXIS_MIN && y2 <= Y_AXIS_MIN) continue;
             
-            // 只显示数值 - 使用小字号，居中显示
-            float_to_str(param_display[i].value, temp_str, 2);
+            // 转换为像素坐标
+            int x1_pixel = chart_area_x_start + (x - 1) * chart_area_width / (CHART_WIDTH - 1);
+            int x2_pixel = chart_area_x_start + x * chart_area_width / (CHART_WIDTH - 1);
             
-            // 计算文本居中位置
-            uint16_t text_width = strlen(temp_str) * (FONT_SIZE_SMALL / 2);
-            uint16_t x_pos = UI_PARAM_X_START + (UI_PARAM_WIDTH - text_width) / 2;
+            int y1_pixel = chart_area_y_start + chart_area_height - 
+                          ((y1 - Y_AXIS_MIN) * chart_area_height / (Y_AXIS_MAX - Y_AXIS_MIN));
+            int y2_pixel = chart_area_y_start + chart_area_height - 
+                          ((y2 - Y_AXIS_MIN) * chart_area_height / (Y_AXIS_MAX - Y_AXIS_MIN));
             
-            LCD_ShowString(x_pos, y_pos, 
-                          (uint8_t*)temp_str, 
-                          param_display[i].color, lcd_ui.bg_color, FONT_SIZE_SMALL, 0);
-            
-            param_display[i].updated = 0;
+            // 绘制线段
+            LCD_DrawLine(x1_pixel, y1_pixel, x2_pixel, y2_pixel, curve_color);
         }
     }
-    
-    lcd_ui.last_update_time = HAL_GetTick();
 }
 
-/**
-  * @brief  获取UI状态
-  * @return UI管理结构体指针
-  */
-LCD_UI_t* LCD_UI_GetHandle(void)
+// 清除所有曲线
+void LCD_UI_ClearAllCurves(void)
 {
-    return &lcd_ui;
+    for(int i = 0; i < MAX_CURVES; i++) {
+        chart_manager.curves[i].active = 0;
+        for(int j = 0; j < CHART_WIDTH; j++) {
+            chart_manager.curves[i].data[j] = Y_AXIS_MIN;
+        }
+    }
+    chart_manager.curve_count = 0;
+    chart_manager.current_x = 0;
+    chart_manager.time_elapsed = 0.0f;
+    
+    // 重绘坐标系
+    LCD_UI_DrawCoordinateSystem();
 }
+
+
+
+
+/**
+  ******************************************************************************
+  * 函数名称: LCD_ShowChannelValues
+  * 功能描述: 在屏幕右侧1/4区域竖排显示3个通道的浮点数
+  * 输入参数: channel - 通道号(0-2)
+  *           color   - 显示颜色
+  *           value   - 浮点数值
+  * 输出参数: 无
+  ******************************************************************************
+  */
+void LCD_ShowChannelValues(uint8_t channel, uint16_t color, float value)
+{
+    // 计算显示区域 - 屏幕右侧1/4
+    static uint16_t display_x_start = LCD_W * 3 / 4;
+    static uint16_t display_width = LCD_W / 4;
+    static uint16_t display_height = LCD_H;
+    
+    // 计算每个通道的显示区域高度
+    static uint16_t channel_height = LCD_H / 3;
+    
+    // 计算每个通道的Y坐标起始位置
+    static uint16_t channel_y_positions[3] = {
+        0,                      // 通道0
+        channel_height,         // 通道1  
+        channel_height * 2      // 通道2
+    };
+    
+    // 根据通道号确定显示位置
+    uint16_t x_pos, y_pos;
+    
+    switch(channel) {
+        case 0:
+            x_pos = display_x_start;
+            y_pos = channel_y_positions[0];
+            break;
+        case 1:
+            x_pos = display_x_start; 
+            y_pos = channel_y_positions[1];
+            break;
+        case 2:
+            x_pos = display_x_start;
+            y_pos = channel_y_positions[2];
+            break;
+        default:
+            return; // 通道号错误，直接返回
+    }
+    
+    // 清空该通道的显示区域
+    LCD_Fill_Fast(x_pos, y_pos, x_pos + display_width, y_pos + channel_height, BLACK);
+    
+    // 显示浮点数（保留2位小数）
+    LCD_ShowFloatNum1(x_pos + 2, y_pos + 4, value, 6, color, BLACK, 12);
+}
+
