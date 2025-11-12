@@ -18,8 +18,11 @@ typedef struct{
 	float ErrMax;     		// 参数: 误差上限
 	float ErrMin;     		// 参数: 误差下限	
 	float ErrLimltFlag;		// 参数: 误差限幅标志
+	float D_Filter;		    // 参数: 微分项滤波系数 (new)
+	float LastDerivative;   // 数据: 上次微分项值 (new)
 }PID_STRUCT;
 
+void PID_Control(PID_STRUCT *p);
 
 
 #endif // MOTOR_PID_H
