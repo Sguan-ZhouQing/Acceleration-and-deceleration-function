@@ -2,7 +2,7 @@
  * @Author: 星必尘Sguan
  * @Date: 2025-11-04 19:24:49
  * @LastEditors: 星必尘Sguan|3464647102@qq.com
- * @LastEditTime: 2025-11-10 19:56:12
+ * @LastEditTime: 2025-11-13 22:35:19
  * @FilePath: \demo_SguanFOCv2.0\Hardware\Current.c
  * @Description: 电流采样实现
  * 
@@ -19,10 +19,11 @@ extern ADC_HandleTypeDef hadc2;
 #include "motor_pid.h"
 
 extern PID_STRUCT SguanVal;
+extern PID_STRUCT SguanCur;
 extern float real_speed;
 
-int32_t temp_IA;
-int32_t temp_IC;
+float temp_IA;
+float temp_IC;
 float my_alpha;
 float my_beta;
 float my_id;
@@ -31,11 +32,39 @@ float mysin;
 float mycos;
 float target_speed;
 
+float temp_IB;
+float filtered_value_B;
+float filtered_value_A;
+float filtered_value_C;
+
 extern float Adjustable_Data;
 
 // ADC原始采样值数组
 volatile uint32_t ADC_InjectedValues[4];
-volatile uint32_t ADC_RegularValues[4];
+float radtemp;
+
+// 获取DQ轴电流值
+void Current_GetDQ(float *id, float *iq) {
+    float sine_own,cosine_own,raw_data_id,raw_data_iq;
+    float i_a = (ADC_InjectedValues[1] - 1905.7f)*10.0f*3.3f/(4096*0.005f);
+    float i_c = (ADC_InjectedValues[2] - 1905.1f)*10.0f*3.3f/(4096*0.005f);
+    // filtered_value_A = kalman_filter_dir_on(i_a,20.0f,0.1f);
+    // filtered_value_C = kalman_filter_dir_off(i_c,20.0f,0.1f);
+    filtered_value_A = i_a;
+    filtered_value_C = i_c;
+    float i_b = -i_a -i_c;
+    fast_sin_cos(radtemp,&sine_own,&cosine_own);
+    clarke(&my_alpha,&my_beta,i_a,i_b);
+    park_corrected(&raw_data_id,&raw_data_iq,my_alpha,my_beta,sine_own,cosine_own);
+    static float filtered_value_D;
+    static float filtered_value_Q;
+    filtered_value_D = low_pass_filter(raw_data_id, filtered_value_D, 0.005f);
+    filtered_value_Q = low_pass_filter(raw_data_iq, filtered_value_Q, 0.005f);
+    *id = filtered_value_D;
+    *iq = filtered_value_Q;
+}
+
+
 
 void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
 {		
@@ -43,22 +72,18 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
 	ADC_InjectedValues[1] = ADC2->JDR2;           //获取A相电流
 	ADC_InjectedValues[2] = ADC2->JDR3;          //获取C相电流
  	ADC_InjectedValues[3] = ADC2->JDR4;//使用波轮电位器给电机目标转速
-    static float filtered_value = 0.0f;
-    filtered_value = low_pass_filter(((ADC2->JDR4)*3.3f*75.0f)/4095.0f, filtered_value, 0.003f);
-    temp_IA = 1905 - ADC_InjectedValues[1];
-    temp_IC =1905 - ADC_InjectedValues[2];
-    static float filtered_value_A = 0.0f;
-    filtered_value_A = low_pass_filter(temp_IA, filtered_value_A, 0.008f);
-    static float filtered_value_C = 0.0f;
-    filtered_value_C = low_pass_filter(temp_IC, filtered_value_C, 0.008f);
-    clarke_ac(&my_alpha,&my_beta,filtered_value_A,filtered_value_C);
+
+    // SguanVal.Ref = Adjustable_Data;
+    // SguanVal.Fbk = real_speed;
+    // PID_Control(&SguanVal);
+    // float rad_num = Encoder_GetRad();
+    // radtemp = normalize_angle(rad_num*7.0f);
+    // SguanFOC_Velocity_CloseLoop(radtemp);
+
+    SguanCur.Ref = Adjustable_Data;
+    SguanCur.Fbk = my_iq;
+    PID_Control(&SguanCur);
     float rad_num = Encoder_GetRad();
-    float radtemp = normalize_angle(rad_num*7.0f);
-    fast_sin_cos(radtemp,&mysin,&mycos);
-    park(&my_id,&my_iq,my_alpha,my_beta,mysin,mycos);
-    target_speed = filtered_value;
-    SguanVal.Fbk = real_speed;
-    PID_Control(&SguanVal);
-    SguanFOC_Velocity_CloseLoop(rad_num);
-    // SguanFOC_Velocity_CloseLoop(rad_num,filtered_value);
+    radtemp = normalize_angle(rad_num*7.0f);
+    SguanFOC_Current_CloseLoop(radtemp);
 }

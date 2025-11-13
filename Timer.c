@@ -2,7 +2,7 @@
  * @Author: 星必尘Sguan
  * @Date: 2025-05-08 19:26:48
  * @LastEditors: 星必尘Sguan|3464647102@qq.com
- * @LastEditTime: 2025-11-10 15:13:02
+ * @LastEditTime: 2025-11-13 20:34:51
  * @FilePath: \demo_SguanFOCv2.0\Hardware\Timer.c
  * @Description: TIM定时中断统一管理函数;
  * 
@@ -16,11 +16,21 @@
 #include "foc.h"
 #include "filter.h"
 #include "motor_pid.h"
+#include "printf.h"
 
 extern ADC_HandleTypeDef hadc2;
 extern float real_speed;
 extern float target_speed;
 extern PID_STRUCT SguanVal;
+
+extern float temp_IB;
+extern float filtered_value_B;
+extern float filtered_value_A;
+extern float filtered_value_C;
+extern float my_id;
+extern float my_iq;
+extern float temp_IA;
+extern float temp_IC;
 
 /**
  * @description: 初始化1ms中断函数的时钟
@@ -41,12 +51,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         HAL_ADCEx_InjectedStart_IT(&hadc2);
     }
     if (htim == &htim2) {  // 1kHz中断
-        SguanVal.Ref = target_speed;
+        Current_GetDQ(&my_id,&my_iq);
         GlobalSet_Tick();
-    }
-    if (htim == &htim4) {  // 5kHz中断
-        // PID_Control(&SguanVal);
-        // SguanFOC_Velocity_CloseLoop(Encoder_GetRad());
+        // printf("%.5f,%.5f,%.5f,%.5f,%.5f,%.5f\n",temp_IA,filtered_value_A,filtered_value_B,filtered_value_C,my_id,my_iq);
     }
 }
 

@@ -2,7 +2,7 @@
  * @Author: 星必尘Sguan
  * @Date: 2025-10-18 14:29:08
  * @LastEditors: 星必尘Sguan|3464647102@qq.com
- * @LastEditTime: 2025-11-11 13:36:09
+ * @LastEditTime: 2025-11-13 23:00:24
  * @FilePath: \demo_SguanFOCv2.0\Software\foc.c
  * @Description: FOC代码应用层书写；
  * 
@@ -17,7 +17,9 @@
 
 extern TIM_HandleTypeDef htim1;
 uint8_t Motor_Dir = 0;
+PID_STRUCT SguanPos;
 PID_STRUCT SguanVal;
+PID_STRUCT SguanCur;
 extern float real_speed;
 
 static float Set_du,Set_dv,Set_dw;
@@ -35,6 +37,7 @@ void Sguan_FocInit(void) {
     HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_1);
     HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_2);
     HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_3);
+    
     // d轴强拖，初始化对齐电角度
     float Init_du,Init_dv,Init_dw;
     SVPWM(0,0.2f,0,&Init_du,&Init_dv,&Init_dw);
@@ -80,6 +83,13 @@ void SguanFOC_Velocity_OpenLoop(float phi,float Uq_Set) {
     Set_Duty(Set_du,Set_dv,Set_dw);
 }
 
+void Position_PidInit(void) {
+    SguanPos.Kp = 0.00014f;
+    SguanPos.Ki = 0.00000072f;
+    SguanPos.Kd = 0.0f;
+    SguanPos.OutMax = 0.6f;
+    SguanPos.OutMin = -0.6f;
+}
 
 void Speed_PidInit(void) {
     SguanVal.Kp = 0.00014f;
@@ -88,20 +98,31 @@ void Speed_PidInit(void) {
     SguanVal.OutMax = 0.9f;
     SguanVal.OutMin = -0.9f;
 }
+void Current_PidInit(void) {
+    SguanCur.Kp = 0.00014f;
+    SguanCur.Ki = 0.00000072f;
+    SguanCur.Kd = 0.0f;
+    SguanCur.OutMax = 0.9f;
+    SguanCur.OutMin = -0.9f;
+}
+
+// 位置闭环实现（输入多圈pos角度）
+void SguanFOC_Position_CloseLoop(float phi,float pos) {
+    float Set_du,Set_dv,Set_dw;
+    SVPWM(phi,0,SguanPos.Out,&Set_du,&Set_dv,&Set_dw);
+    Set_Duty(Set_du,Set_dv,Set_dw);
+}
 
 // 速度闭环实现（PID算法）
 void SguanFOC_Velocity_CloseLoop(float phi) {
-    // float Set_du,Set_dv,Set_dw;
-    phi = phi*7.0f;
-    phi = normalize_angle(phi);
     SVPWM(phi,0,SguanVal.Out,&Set_du,&Set_dv,&Set_dw);
     Set_Duty(Set_du,Set_dv,Set_dw);
 }
 
-
-void SguanFOC_Current_CloseLoop(float phi,float target_cur) {
+// 电流环实现（输入电角度）
+void SguanFOC_Current_CloseLoop(float phi) {
     float Set_du,Set_dv,Set_dw;
-    SVPWM(phi,0,SguanVal.Out,&Set_du,&Set_dv,&Set_dw);
+    SVPWM(phi,0,SguanCur.Out,&Set_du,&Set_dv,&Set_dw);
     Set_Duty(Set_du,Set_dv,Set_dw);
 }
 
