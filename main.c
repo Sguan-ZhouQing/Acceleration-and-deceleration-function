@@ -38,23 +38,32 @@
 #include "lcd_ui.h"
 #include "lcd_drv.h"
 #include "filter.h"
+#include "led.h"
+#include "Key.h"
 
 extern float real_speed;
 extern float target_speed;
+extern PID_STRUCT SguanPos;
 extern PID_STRUCT SguanVal;
+extern PID_STRUCT SguanCur;
+extern const unsigned char gImage_font_Assassin[25600];
 
 extern volatile uint32_t ADC_InjectedValues[4];
-extern volatile uint32_t ADC_RegularValues[4];
 
-
-extern int32_t temp_IA;
-extern int32_t temp_IC;
+extern float temp_IA;
+extern float temp_IC;
 extern float my_alpha;
 extern float my_beta;
 extern float my_id;
 extern float my_iq;
 extern float mysin;
 extern float mycos;
+
+extern float filtered_value_B;
+extern float filtered_value_A;
+extern float filtered_value_C;
+
+extern float radtemp;
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -125,35 +134,29 @@ int main(void)
   MX_SPI3_Init();
   MX_TIM3_Init();
   MX_TIM2_Init();
-  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   Sguan_FocInit();
   UART_Init();
-  // HAL_TIM_Base_Start_IT(&htim4);
   HAL_TIM_Base_Start_IT(&htim2);
   HAL_TIM_Base_Start_IT(&htim1);
+  Position_PidInit();
   Speed_PidInit();
+  Current_PidInit();
   LCD_UI_Init();
-  LCD_UI_AddCurve(0, "", RED, -30.0f, 250.0f);
-  LCD_UI_AddCurve(1, "", YELLOW, -30.0f, 250.0f);
-  LCD_UI_AddCurve(2, "", BLUE, -30.0f, 250.0f);
+  LCD_ShowPicture(0,0,160,80,gImage_font_Assassin);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   { 
-    // LCD_UI_UpdateCurveData(0, target_speed);          // 目标速度
-    // LCD_UI_UpdateCurveData(1, real_speed);                            // 真实速度
-    // LCD_UI_UpdateCurveData(2, SguanVal.Out*250);                      // Q轴电压
-    // LCD_UI_DisplayParameter(0, target_speed,RED);
-    // LCD_UI_DisplayParameter(1, real_speed, YELLOW);
-    // LCD_UI_DisplayParameter(2, SguanVal.Out, BLUE);
-    // LCD_UI_UpdateDisplay();
-
-    printf("%.5f,%.5f,%.5f,%.5f,%.5f,%d,%d,%.5f,%.5f,%.5f,%d,%d\n",real_speed,my_id,my_iq,my_alpha,my_beta,temp_IA,temp_IC,mysin,mycos,SguanVal.Out,ADC_InjectedValues[0],ADC_InjectedValues[3]);
-    // printf("%.5f,%.5f,%.5f\n",target_speed,real_speed,SguanVal.Out);
-    HAL_Delay(1);
+    // LCD_GlobalUI_Tick();
+    // printf("%.5f,%.5f,%.5f,%.5f,%.5f,%.5f\n",temp_IA,filtered_value_A,filtered_value_B,filtered_value_C,my_id,my_iq);
+    // printf("%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%d,%d,%.5f,%.5f,%.5f,%d,%d\n",real_speed,Adjustable_Data,my_id,my_iq,my_alpha,my_beta,temp_IA,temp_IC,mysin,mycos,SguanVal.Out,ADC_InjectedValues[1],ADC_InjectedValues[2]);
+    // float sensor_data[6] = {temp_IA, filtered_value_A, filtered_value_B, filtered_value_C, my_id, my_iq};
+    // UART_SendFloats(sensor_data, 6, 2);
+    printf("%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f\n",Adjustable_Data,Encoder_GetPos(),SguanPos.Out,filtered_value_A,filtered_value_C,my_id, my_iq, my_alpha,my_beta,radtemp);
+    // HAL_Delay(1);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
