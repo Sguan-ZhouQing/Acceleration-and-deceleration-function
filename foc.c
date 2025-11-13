@@ -2,7 +2,7 @@
  * @Author: 星必尘Sguan
  * @Date: 2025-10-18 14:29:08
  * @LastEditors: 星必尘Sguan|3464647102@qq.com
- * @LastEditTime: 2025-11-13 23:00:24
+ * @LastEditTime: 2025-11-14 01:06:35
  * @FilePath: \demo_SguanFOCv2.0\Software\foc.c
  * @Description: FOC代码应用层书写；
  * 
@@ -84,20 +84,27 @@ void SguanFOC_Velocity_OpenLoop(float phi,float Uq_Set) {
 }
 
 void Position_PidInit(void) {
-    SguanPos.Kp = 0.00014f;
-    SguanPos.Ki = 0.00000072f;
+    SguanPos.Kp = 0.15f;
+    SguanPos.Ki = 0.00000025f;
     SguanPos.Kd = 0.0f;
-    SguanPos.OutMax = 0.6f;
-    SguanPos.OutMin = -0.6f;
+    SguanPos.OutMax = 0.35f;
+    SguanPos.OutMin = -0.35f;
 }
 
 void Speed_PidInit(void) {
-    SguanVal.Kp = 0.00014f;
-    SguanVal.Ki = 0.00000072f;
+    SguanVal.Kp = 0.02226f;
+    SguanVal.Ki = 0.000115f;
     SguanVal.Kd = 0.0f;
     SguanVal.OutMax = 0.9f;
     SguanVal.OutMin = -0.9f;
 }
+// void Speed_PidInit(void) {
+//     SguanVal.Kp = 0.00014f;
+//     SguanVal.Ki = 0.00000072f;
+//     SguanVal.Kd = 0.0f;
+//     SguanVal.OutMax = 0.9f;
+//     SguanVal.OutMin = -0.9f;
+// }
 void Current_PidInit(void) {
     SguanCur.Kp = 0.00014f;
     SguanCur.Ki = 0.00000072f;
@@ -107,7 +114,7 @@ void Current_PidInit(void) {
 }
 
 // 位置闭环实现（输入多圈pos角度）
-void SguanFOC_Position_CloseLoop(float phi,float pos) {
+void SguanFOC_Position_CloseLoop(float phi) {
     float Set_du,Set_dv,Set_dw;
     SVPWM(phi,0,SguanPos.Out,&Set_du,&Set_dv,&Set_dw);
     Set_Duty(Set_du,Set_dv,Set_dw);
@@ -125,4 +132,24 @@ void SguanFOC_Current_CloseLoop(float phi) {
     SVPWM(phi,0,SguanCur.Out,&Set_du,&Set_dv,&Set_dw);
     Set_Duty(Set_du,Set_dv,Set_dw);
 }
+
+
+/* 串级PID调控 */
+
+// 电流环实现（输入电角度）
+void SguanFOC_Vel_Cur_CloseLoop(float phi) {
+    float Set_du,Set_dv,Set_dw;
+    SVPWM(phi,0,SguanCur.Out,&Set_du,&Set_dv,&Set_dw);
+    Set_Duty(Set_du,Set_dv,Set_dw);
+}
+
+
+// 电流环实现（输入电角度）
+void SguanFOC_Pos_Vel_Cur_CloseLoop(float phi) {
+    float Set_du,Set_dv,Set_dw;
+    SVPWM(phi,0,SguanCur.Out,&Set_du,&Set_dv,&Set_dw);
+    Set_Duty(Set_du,Set_dv,Set_dw);
+}
+
+
 

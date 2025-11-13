@@ -2,7 +2,17 @@
  * @Author: 星必尘Sguan
  * @Date: 2025-11-04 23:01:12
  * @LastEditors: 星必尘Sguan|3464647102@qq.com
- * @LastEditTime: 2025-11-05 09:50:42
+ * @LastEditTime: 2025-11-14 00:21:47
+ * @FilePath: \demo_SguanFOCv2.0\Software\motor_SVPWM.c
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by $JUST, All Rights Reserved. 
+ */
+/*
+ * @Author: 星必尘Sguan
+ * @Date: 2025-11-04 23:01:12
+ * @LastEditors: 星必尘Sguan|3464647102@qq.com
+ * @LastEditTime: 2025-11-05 21:54:02
  * @FilePath: \demo_SguanFOCv2.0\Software\motor_SVPWM.c
  * @Description: SVPWM应用函数书写
  * 
@@ -64,6 +74,7 @@ void clarke(float *i_alpha,float *i_beta,float i_a,float i_b) {
     *i_beta = (i_a + 2 * i_b) * 0.5773502691896257f;
 }
 
+
 /**
  * @description: 帕克变换
  * @param {float} *i_d
@@ -74,10 +85,24 @@ void clarke(float *i_alpha,float *i_beta,float i_a,float i_b) {
  * @param {float} cosine
  * @return {*}
  */
+// void park(float *i_d,float *i_q,float i_alpha,float i_beta,float sine,float cosine) {
+//     *i_d = i_alpha * cosine + i_beta * sine;
+//     *i_q = i_beta * cosine - i_alpha * sine;
+// }
+
 void park(float *i_d,float *i_q,float i_alpha,float i_beta,float sine,float cosine) {
-    *i_d = i_alpha * cosine + i_beta * sine;
-    *i_q = i_beta * cosine - i_alpha * sine;
+    *i_d =  - i_alpha * cosine - i_beta * sine;
+    *i_q = - i_beta * cosine + i_alpha * sine;
 }
+// 适配的Park变换
+void park_corrected(float *i_d, float *i_q, float i_alpha, float i_beta, float sine, float cosine) {
+    // 由于 Iα = -sin(θ), Iβ = cos(θ)
+    // 标准公式需要调整符号
+    
+    *i_d = -i_alpha * cosine + i_beta * sine;    // Iα项取反
+    *i_q = -i_alpha * sine - i_beta * cosine;    // Iβ项取反
+}
+
 
 /**
  * @description: 帕克“逆”变换
