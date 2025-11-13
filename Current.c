@@ -2,7 +2,7 @@
  * @Author: 星必尘Sguan
  * @Date: 2025-11-04 19:24:49
  * @LastEditors: 星必尘Sguan|3464647102@qq.com
- * @LastEditTime: 2025-11-13 22:35:19
+ * @LastEditTime: 2025-11-14 01:10:19
  * @FilePath: \demo_SguanFOCv2.0\Hardware\Current.c
  * @Description: 电流采样实现
  * 
@@ -18,6 +18,7 @@ extern ADC_HandleTypeDef hadc2;
 #include "fast_sin.h"
 #include "motor_pid.h"
 
+extern PID_STRUCT SguanPos;
 extern PID_STRUCT SguanVal;
 extern PID_STRUCT SguanCur;
 extern float real_speed;
@@ -52,9 +53,8 @@ void Current_GetDQ(float *id, float *iq) {
     // filtered_value_C = kalman_filter_dir_off(i_c,20.0f,0.1f);
     filtered_value_A = i_a;
     filtered_value_C = i_c;
-    float i_b = -i_a -i_c;
     fast_sin_cos(radtemp,&sine_own,&cosine_own);
-    clarke(&my_alpha,&my_beta,i_a,i_b);
+    clarke(&my_alpha,&my_beta,i_a,i_c);
     park_corrected(&raw_data_id,&raw_data_iq,my_alpha,my_beta,sine_own,cosine_own);
     static float filtered_value_D;
     static float filtered_value_Q;
@@ -73,17 +73,36 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
 	ADC_InjectedValues[2] = ADC2->JDR3;          //获取C相电流
  	ADC_InjectedValues[3] = ADC2->JDR4;//使用波轮电位器给电机目标转速
 
-    // SguanVal.Ref = Adjustable_Data;
-    // SguanVal.Fbk = real_speed;
-    // PID_Control(&SguanVal);
+    
+    //  float pos_num = Encoder_GetPos();
+    //  SguanPos.Ref = Adjustable_Data;
+    //  SguanPos.Fbk = pos_num;
+    //  PID_Control(&SguanPos);
+    //  float rad_num = Encoder_GetRad();
+    //  radtemp = normalize_angle(rad_num*7.0f);
+    //  SguanFOC_Position_CloseLoop(radtemp);
+     
+     
+     float rad_num = Encoder_GetRad();
+     radtemp = normalize_angle(rad_num*7.0f);
+    //  SguanFOC_Velocity_CloseLoop(radtemp);
+    // float Set_du,Set_dv,Set_dw;
+    SVPWM(radtemp,0,SguanPos.Out,&Set_du,&Set_dv,&Set_dw);
+    Set_Duty(Set_du,Set_dv,Set_dw);
+     
+     // SguanCur.Ref = Adjustable_Data;
+    // SguanCur.Fbk = my_iq;
+    // PID_Control(&SguanCur);
     // float rad_num = Encoder_GetRad();
     // radtemp = normalize_angle(rad_num*7.0f);
-    // SguanFOC_Velocity_CloseLoop(radtemp);
+    // SguanFOC_Current_CloseLoop(radtemp);
 
-    SguanCur.Ref = Adjustable_Data;
-    SguanCur.Fbk = my_iq;
-    PID_Control(&SguanCur);
-    float rad_num = Encoder_GetRad();
-    radtemp = normalize_angle(rad_num*7.0f);
-    SguanFOC_Current_CloseLoop(radtemp);
+
+    // float pos_num = Encoder_GetPos();
+    // SguanPos.Ref = Adjustable_Data;
+    // SguanPos.Fbk = pos_num;
+    // PID_Control(&SguanPos);
+    // float rad_num = Encoder_GetRad();
+    // radtemp = normalize_angle(rad_num*7.0f);
+    // SguanFOC_Position_CloseLoop(radtemp);
 }

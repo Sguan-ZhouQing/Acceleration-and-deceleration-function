@@ -51,6 +51,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         HAL_ADCEx_InjectedStart_IT(&hadc2);
     }
     if (htim == &htim2) {  // 1kHz中断
+        SguanVal.Ref = Adjustable_Data;
+        SguanVal.Fbk = real_speed;
+        PID_Control(&SguanVal);
         Current_GetDQ(&my_id,&my_iq);
         GlobalSet_Tick();
         // printf("%.5f,%.5f,%.5f,%.5f,%.5f,%.5f\n",temp_IA,filtered_value_A,filtered_value_B,filtered_value_C,my_id,my_iq);
