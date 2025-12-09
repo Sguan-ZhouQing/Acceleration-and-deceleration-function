@@ -18,52 +18,23 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "adc.h"
-#include "dma.h"
 #include "spi.h"
 #include "tim.h"
-#include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "printf.h"
-#include "motor_SVPWM.h"
-#include "speed_drv.h"
-#include "Encoder.h"
-#include "foc.h"
-#include "motor_SVPWM.h"
-#include "motor_pid.h"
-#include "Current.h"
-#include "lcd_ui.h"
-#include "lcd_drv.h"
+#include <string.h>
+#include "IIC.h"
+#include "inv_mpu.h"
+#include "inv_mpu_dmp_motion_driver.h"
+#include "mpu6050.h"
+#include "nRF24L01.h"
+#include "nRF_printf.h"
 #include "filter.h"
-#include "led.h"
-#include "Key.h"
 
-extern float real_speed;
-extern float target_speed;
-extern PID_STRUCT SguanPos;
-extern PID_STRUCT SguanVal;
-extern PID_STRUCT SguanCur;
-extern const unsigned char gImage_font_Assassin[25600];
-
-extern volatile uint32_t ADC_InjectedValues[4];
-
-extern float temp_IA;
-extern float temp_IC;
-extern float my_alpha;
-extern float my_beta;
-extern float my_id;
-extern float my_iq;
-extern float mysin;
-extern float mycos;
-
-extern float filtered_value_B;
-extern float filtered_value_A;
-extern float filtered_value_C;
-
-extern float radtemp;
+uint8_t Buff_RX[32] = {0};
+uint8_t command = 0;
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -127,36 +98,82 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_USART1_UART_Init();
-  MX_TIM1_Init();
-  MX_ADC2_Init();
-  MX_SPI3_Init();
-  MX_TIM3_Init();
+  MX_SPI2_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  Sguan_FocInit();
-  UART_Init();
-  HAL_TIM_Base_Start_IT(&htim2);
-  HAL_TIM_Base_Start_IT(&htim1);
-  Position_PidInit();
-  Speed_PidInit();
-  Current_PidInit();
-  LCD_UI_Init();
-  LCD_ShowPicture(0,0,160,80,gImage_font_Assassin);
+  NRF24L01_Init();
+  MPU_Init();
+	mpu_dmp_init();
+  // HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+  // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_1,250);  
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  // float pitch,roll,yaw;
+  int16_t gyro_x,gyro_y,gyro_z;
   while (1)
-  { 
-    // LCD_GlobalUI_Tick();
-    // printf("%.5f,%.5f,%.5f,%.5f,%.5f,%.5f\n",temp_IA,filtered_value_A,filtered_value_B,filtered_value_C,my_id,my_iq);
-    // printf("%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%d,%d,%.5f,%.5f,%.5f,%d,%d\n",real_speed,Adjustable_Data,my_id,my_iq,my_alpha,my_beta,temp_IA,temp_IC,mysin,mycos,SguanVal.Out,ADC_InjectedValues[1],ADC_InjectedValues[2]);
-    // float sensor_data[6] = {temp_IA, filtered_value_A, filtered_value_B, filtered_value_C, my_id, my_iq};
-    // UART_SendFloats(sensor_data, 6, 2);
-    printf("%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f\n",Adjustable_Data,Encoder_GetPos(),SguanPos.Out,filtered_value_A,filtered_value_C,my_id, my_iq, my_alpha,my_beta,radtemp);
-    // HAL_Delay(1);
+  {
+    // mpu_dmp_get_data(&pitch,&roll,&yaw);
+    MPU_Get_Gyroscope(&gyro_x,&gyro_y,&gyro_z);
+    gyro_x = kalman_filter_std(gyro_x, 15.0f, 0.001f);
+    gyro_y = kalman_filter_dir_on(gyro_y, 15.0f, 0.001f);
+    gyro_z = kalman_filter_dir_off(gyro_z, 15.0f, 0.001f);
+    float data[] = {-gyro_x/5.2f,-gyro_y/5.2f,gyro_z/5.2f};
+    // MPU_Get_Gyroscope(&gyro_x,&gyro_y,&gyro_z);
+    // MPU_Get_Accelerometer(&accX,&accY,&accZ);
+    nRF_Printf(data,3);
+    HAL_Delay(2);
+		if (NRF24L01_Get_Value_Flag() == 0)
+		{
+			NRF24L01_GetRxBuf(Buff_RX); // 根据发送端的数据格式，命令在第二个字节
+			command = Buff_RX[1];  // 或者 Buff_RX[0]，取决于您选择哪个方案
+      HAL_GPIO_TogglePin(GPIOB,GPIO_PIN_11);
+		}
+		switch (command)
+		{
+		case 0x01:
+			// __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_1,500);
+			break;
+		case 0x02:
+      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_2,100);
+			break;
+		case 0x03:
+      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_3,500);
+			break;
+		case 0x04:
+      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_4,1000);
+			break;
+		case 0x05:
+      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_1,1000);
+			break;
+		case 0x06:
+      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_2,500);
+			break;
+		case 0x07:
+      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_3,1000);
+			break;
+		case 0x08:
+      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_4,500);
+			break;
+		case 0x09:
+      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_1,600);
+      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_2,900);
+      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_3,600);
+      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_4,900);
+			break;
+		case 0x10:
+      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_1,900);
+      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_2,600);
+      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_3,900);
+      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_4,600);
+			break;
+		default:
+			break;
+		}
+		// 清空缓冲区，避免重复处理
+		memset(Buff_RX, 0, sizeof(Buff_RX));
+		command = 0x00;
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -173,10 +190,6 @@ void SystemClock_Config(void)
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-  /** Configure the main internal regulator output voltage
-  */
-  HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1_BOOST);
-
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
@@ -184,12 +197,8 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV4;
-  RCC_OscInitStruct.PLL.PLLN = 85;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
-  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI_DIV2;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL16;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -201,10 +210,10 @@ void SystemClock_Config(void)
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
