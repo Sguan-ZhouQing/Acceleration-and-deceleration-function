@@ -18,23 +18,26 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "adc.h"
+#include "i2c.h"
 #include "spi.h"
 #include "tim.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
+#include <stdint.h>
 #include <string.h>
-#include "IIC.h"
-#include "inv_mpu.h"
-#include "inv_mpu_dmp_motion_driver.h"
-#include "mpu6050.h"
-#include "nRF24L01.h"
-#include "nRF_printf.h"
-#include "filter.h"
+#include <stdarg.h>
 
-uint8_t Buff_RX[32] = {0};
-uint8_t command = 0;
+#include "nRF24L01.h"
+#include "Key.h"
+#include "OLED.h"
+
+#include "nRF_printf.h"
+#include "Timer.h"
+extern uint32_t ADC_InjectedValues[4];
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -67,6 +70,102 @@ void SystemClock_Config(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+
+int float_to_ascii_with_length_ex(float num, uint8_t *data, size_t data_size, int decimal_places) {
+    char buffer[32];
+    char format[8];
+    
+    // 根据小数位数构建格式字符串
+    if (decimal_places > 0) {
+        snprintf(format, sizeof(format), "%%.%df", decimal_places);
+        snprintf(buffer, sizeof(buffer), format, num);
+    } else if (decimal_places == 0) {
+        // 四舍五入到整数
+        snprintf(buffer, sizeof(buffer), "%.0f", num);
+    } else {
+        // 自动模式，使用%g
+        snprintf(buffer, sizeof(buffer), "%g", num);
+    }
+    
+    int len = (int)strlen(buffer);
+    
+    // 检查目标数组是否足够大
+    if (data_size < (size_t)(len + 1)) {
+        return -1;
+    }
+    
+    // 第一个字节存储字符串的长度
+    if (len > 255) {
+        return -1;
+    }
+    
+    data[0] = (uint8_t)len;
+    
+    // 复制字符串
+    memcpy(&data[1], buffer, len);
+    
+    return len + 1;
+}
+
+int floats_to_ascii_with_length_ex(float *nums, int num_count, uint8_t *data, size_t data_size, int decimal_places) {
+    char buffer[256] = {0};  // 增大缓冲区以容纳多个数字
+    char format[8];
+    char temp[32];
+    
+    if (num_count <= 0 || nums == NULL || data == NULL) {
+        return -1;
+    }
+    
+    // 构建格式字符串
+    if (decimal_places > 0) {
+        snprintf(format, sizeof(format), "%%.%df", decimal_places);
+    } else if (decimal_places == 0) {
+        snprintf(format, sizeof(format), "%%.0f");
+    } else {
+        // 对于自动模式，我们需要单独处理每个数字
+    }
+    
+    // 构建完整的字符串，用逗号分隔
+    for (int i = 0; i < num_count; i++) {
+        if (i > 0) {
+            strcat(buffer, ",");
+        }
+        
+        if (decimal_places >= 0) {
+            // 指定小数位数或整数模式
+            snprintf(temp, sizeof(temp), format, nums[i]);
+        } else {
+            // 自动模式
+            snprintf(temp, sizeof(temp), "%g", nums[i]);
+        }
+        
+        // 检查缓冲区是否足够
+        if (strlen(buffer) + strlen(temp) + 1 >= sizeof(buffer)) {
+            return -1;  // 缓冲区溢出
+        }
+        
+        strcat(buffer, temp);
+    }
+    
+    int len = (int)strlen(buffer);
+    
+    // 检查目标数组是否足够大
+    if (data_size < (size_t)(len + 1)) {
+        return -1;
+    }
+    
+    // 第一个字节存储字符串的长度
+    if (len > 255) {
+        return -1;
+    }
+    
+    data[0] = (uint8_t)len;
+    
+    // 复制字符串
+    memcpy(&data[1], buffer, len);
+    
+    return len + 1;  // 返回总字节数（长度字节 + 字符串）
+}
 /* USER CODE END 0 */
 
 /**
@@ -98,82 +197,126 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_ADC1_Init();
   MX_SPI2_Init();
-  MX_TIM2_Init();
+  MX_TIM1_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
+	HAL_Delay(300);
+  OLED_Init();
   NRF24L01_Init();
-  MPU_Init();
-	mpu_dmp_init();
-  // HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
-  // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_1,250);  
+  HAL_TIM_Base_Start_IT(&htim1);
+
+  uint8_t Buff_Tx1[32] = {1,0x01};
+  uint8_t Buff_Tx2[32] = {1,0x02};
+  uint8_t Buff_Tx3[32] = {1,0x03};
+  uint8_t Buff_Tx4[32] = {1,0x04};
+  uint8_t Buff_Tx5[32] = {1,0x05};
+  uint8_t Buff_Tx6[32] = {1,0x06};
+  uint8_t Buff_Tx7[32] = {1,0x07};
+  uint8_t Buff_Tx8[32] = {1,0x08};
+  uint8_t Buff_Tx9[32] = {5,0x09,0x08,0x07,0x06,0x05};
+  uint8_t Buff_Tx10[32] = {10,0x10,0x09,0x08,0x07,0x06,0x05,0x04,0x03,0x02,0x01};
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  // float pitch,roll,yaw;
-  int16_t gyro_x,gyro_y,gyro_z;
+  uint8_t num_a = 0;
+  uint8_t num_b = 0;
+  uint8_t num_c = 0;
+  uint8_t num_d = 0;
+  float sensor_data[] = {12.2f, 13.3f};
+  float num3 = 3.14159f;
+  uint8_t data1[32];
+  
+
+  float numbers[] = {58.45f, 13.32f, 16.82f};
+  uint8_t data3[32] = {0};
+
   while (1)
   {
-    // mpu_dmp_get_data(&pitch,&roll,&yaw);
-    MPU_Get_Gyroscope(&gyro_x,&gyro_y,&gyro_z);
-    gyro_x = kalman_filter_std(gyro_x, 15.0f, 0.001f);
-    gyro_y = kalman_filter_dir_on(gyro_y, 15.0f, 0.001f);
-    gyro_z = kalman_filter_dir_off(gyro_z, 15.0f, 0.001f);
-    float data[] = {-gyro_x/5.2f,-gyro_y/5.2f,gyro_z/5.2f};
-    // MPU_Get_Gyroscope(&gyro_x,&gyro_y,&gyro_z);
-    // MPU_Get_Accelerometer(&accX,&accY,&accZ);
-    nRF_Printf(data,3);
-    HAL_Delay(2);
-		if (NRF24L01_Get_Value_Flag() == 0)
-		{
-			NRF24L01_GetRxBuf(Buff_RX); // 根据发送端的数据格式，命令在第二个字节
-			command = Buff_RX[1];  // 或者 Buff_RX[0]，取决于您选择哪个方案
-      HAL_GPIO_TogglePin(GPIOB,GPIO_PIN_11);
-		}
-		switch (command)
-		{
-		case 0x01:
-			// __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_1,500);
-			break;
-		case 0x02:
-      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_2,100);
-			break;
-		case 0x03:
-      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_3,500);
-			break;
-		case 0x04:
-      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_4,1000);
-			break;
-		case 0x05:
-      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_1,1000);
-			break;
-		case 0x06:
-      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_2,500);
-			break;
-		case 0x07:
-      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_3,1000);
-			break;
-		case 0x08:
-      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_4,500);
-			break;
-		case 0x09:
-      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_1,600);
-      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_2,900);
-      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_3,600);
-      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_4,900);
-			break;
-		case 0x10:
-      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_1,900);
-      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_2,600);
-      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_3,900);
-      // __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_4,600);
-			break;
-		default:
-			break;
-		}
-		// 清空缓冲区，避免重复处理
-		memset(Buff_RX, 0, sizeof(Buff_RX));
-		command = 0x00;
+    OLED_ShowString(10,0,"Sguan_nRF24",OLED_8X16);
+    OLED_ShowSignedNum(0,20,(ADC_InjectedValues[0]*200/4096 - 100),3,OLED_8X16);
+    OLED_ShowSignedNum(64,20,(ADC_InjectedValues[1]*200/4096 - 100),3,OLED_8X16);
+    OLED_Update();
+    uint8_t Key_Count = Key_GetNum();
+    switch (Key_Count)
+    {
+    case 1:
+      // OLED_ShowString(0,23,"K1",OLED_8X16);
+      // NRF24L01_SendBuf(Buff_Tx1);
+      // num_a += 1;
+    
+      // 方法1：使用辅助函数（内部创建缓冲区）
+      int result = floats_to_ascii_with_length_ex(
+          numbers, 
+          3,          // 数字个数
+          data3, 
+          sizeof(data3), 
+          2           // 保留2位小数
+      );
+      NRF24L01_SendBuf(data3);
+      break;
+    case 2:
+      OLED_ShowString(0,23,"K2",OLED_8X16);
+      NRF24L01_SendBuf(Buff_Tx2);
+      num_b += 1;
+      break;
+    case 3:
+      OLED_ShowString(0,23,"K3",OLED_8X16);
+      NRF24L01_SendBuf(Buff_Tx3);      
+      num_c += 1;
+      break;
+    case 4:
+      OLED_ShowString(0,23,"K4",OLED_8X16);
+      NRF24L01_SendBuf(Buff_Tx4);      
+      num_d += 1;
+      break;
+    case 5:
+      OLED_ShowString(0,23,"K5",OLED_8X16);
+      NRF24L01_SendBuf(Buff_Tx5);      
+      num_a -= 1;
+      break;
+    case 6:
+      OLED_ShowString(0,23,"K6",OLED_8X16);
+      NRF24L01_SendBuf(Buff_Tx6);   
+      num_b -= 1;   
+      break;
+    case 7:
+      OLED_ShowString(0,23,"K7",OLED_8X16);
+      NRF24L01_SendBuf(Buff_Tx7);      
+      num_c -= 1;
+      break;
+    case 8:
+      OLED_ShowString(0,23,"K8",OLED_8X16);
+      NRF24L01_SendBuf(Buff_Tx8);      
+      num_d -= 1;
+      break;
+    case 9:
+      OLED_ShowString(0,23,"K9",OLED_8X16);
+      NRF24L01_SendBuf(Buff_Tx9);      
+      num_a += 1;
+      num_b += 1;
+      num_c += 1;
+      num_d += 1;
+      break;
+    case 10:
+      OLED_ShowString(0,23,"K10",OLED_8X16);
+      NRF24L01_SendBuf(Buff_Tx10);
+      num_a -= 1;
+      num_b -= 1;
+      num_c -= 1;
+      num_d -= 1; 
+      break;
+    
+    default:
+      break;
+    }
+    OLED_ShowSignedNum(0,45,num_a,2,OLED_8X16);
+    OLED_ShowSignedNum(30,45,num_b,2,OLED_8X16);
+    OLED_ShowSignedNum(60,45,num_c,2,OLED_8X16);
+    OLED_ShowSignedNum(90,45,num_d,2,OLED_8X16);
+    OLED_Update();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -189,16 +332,18 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI_DIV2;
-  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL16;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -214,6 +359,12 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
+  PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV6;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
   }
