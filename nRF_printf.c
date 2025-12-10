@@ -2,7 +2,7 @@
  * @Author: 星必尘Sguan
  * @Date: 2025-12-09 19:53:31
  * @LastEditors: 星必尘Sguan|3464647102@qq.com
- * @LastEditTime: 2025-12-10 01:24:12
+ * @LastEditTime: 2025-12-10 10:26:54
  * @FilePath: \demo_ButterFly\Hardware\nRF_printf.c
  * @Description: printf函数
  * 
@@ -68,30 +68,29 @@ static int ascii_to_floats(const uint8_t *data, uint8_t max_floats, float *float
     if (data == NULL || floats == NULL || max_floats == 0) {
         return -1;
     }
-    // 第一个字节是数据长度（不包括长度字节本身）
-    uint8_t str_len = data[0];
-    // 验证数据长度
-    if (str_len == 0) {
+    // 第一个字节：字符串总长度（包括换行符）
+    uint8_t total_len = data[0];
+    // 验证最小长度：至少要有 "X\n"（1个字符+换行符）
+    if (total_len < 2) {
         return -1;
     }
+    // 计算实际字符串长度（不包括换行符）
+    uint8_t str_len = total_len - 1;
     // 验证最后一个字节是否为换行符
-    if (data[str_len] != '\n') {  // str_len 索引指向最后一个字节（因为长度字节是 data[0]）
+    // 换行符在 data[total_len] 位置（因为data[0]是长度字节）
+    if (data[total_len] != '\n') {
         return -1;
     }
-    // 创建临时字符串缓冲区（不包括长度字节和换行符）
+    // 提取字符串（不包括换行符）
     char str_buffer[256] = {0};
-    // 复制ASCII字符串（从 data[1] 到 data[str_len-1]）
     memcpy(str_buffer, &data[1], str_len);
-    str_buffer[str_len] = '\0';  // 确保字符串以NULL结尾
-    // 使用逗号分隔字符串
+    str_buffer[str_len] = '\0';
+    // 分割字符串
     char *token = strtok(str_buffer, ",");
     int count = 0;
     while (token != NULL && count < max_floats) {
-        // 将字符串转换为浮点数
         floats[count] = (float)atof(token);
         count++;
-        
-        // 获取下一个token
         token = strtok(NULL, ",");
     }
     return count;
